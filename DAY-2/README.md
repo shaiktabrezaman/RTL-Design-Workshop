@@ -254,7 +254,7 @@ module mult8 (
     output [5:0] y
 );
 
-assign y = {a, a};
+assign y = a * 8;
 
 endmodule
 ```
