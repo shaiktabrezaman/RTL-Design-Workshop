@@ -70,35 +70,199 @@ This produces `pre_synth_sim.vcd`, opened in GTKWave to observe `CLK`, `reset`, 
 
 ## 4. Synthesis Using Yosys
 
-The RTL was synthesized in Yosys, mapping the design onto the SKY130 standard-cell library along with the PLL and DAC liberty models.
-
-```text
+The following commands were used to synthesize the design in Yosys, mapping it onto the SKY130 standard-cell library along with the PLL and DAC liberty models.
+ 
+### Reading the Top-Level Design
+ 
+```tcl
 read_verilog src/module/vsdbabysoc.v
+```
+ 
+This reads the main top-level Verilog file into Yosys. The `vsdbabysoc` module connects the major blocks of the design.
+ 
+---
+ 
+### Reading the RVMYTH Module
+ 
+```tcl
 read_verilog -I src/include/ src/module/rvmyth.v
+```
+ 
+This reads the RVMYTH processor core. The `-I src/include/` option lets Yosys locate the include files that `rvmyth.v` depends on.
+ 
+---
+ 
+### Reading the Clock Gate Module
+ 
+```tcl
 read_verilog -I src/include/ src/module/clk_gate.v
-
+```
+ 
+This reads the clock gate module, again with the include directory provided. Once all three RTL files are read, Yosys has the full design hierarchy.
+ 
+---
+ 
+### Reading the PLL Library
+ 
+```tcl
 read_liberty -lib src/lib/avsdpll.lib
+```
+ 
+This loads the Liberty file describing the PLL block, so Yosys knows its pins and timing behavior during mapping.
+ 
+---
+ 
+### Reading the DAC Library
+ 
+```tcl
 read_liberty -lib src/lib/avsddac.lib
+```
+ 
+This loads the Liberty file describing the DAC block, for the same reason as above.
+ 
+---
+ 
+### Reading the SKY130 Standard Cell Library
+ 
+```tcl
 read_liberty -lib src/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
-
+```
+ 
+This loads the main SKY130 standard-cell library, containing the logic gates, buffers, inverters, and flip-flops that the design will eventually be mapped onto.
+ 
+---
+ 
+### Selecting and Synthesizing the Top Module
+ 
+```tcl
 synth -top vsdbabysoc
-
+```
+ 
+This tells Yosys that `vsdbabysoc` is the top module of the design and runs Yosys's generic synthesis flow on it: elaboration, coarse-grain optimization, and technology-independent mapping into an internal logic representation.
+ 
+---
+ 
+### Mapping Flip-Flops
+ 
+```tcl
 dfflibmap -liberty src/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+```
+ 
+This maps the generic flip-flops produced by `synth` onto actual SKY130 flip-flop cells.
+ 
+```text
+RTL Flip-Flop
+      ↓
+dfflibmap
+      ↓
+Sky130 Flip-Flop Cell
+```
+ 
+---
+ 
+### Generic Logic Optimization
+ 
+```tcl
 opt
+```
+ 
+This runs a round of technology-independent optimization, constant propagation and redundant logic removal, cleaning up the design before it goes into technology mapping.
+ 
+---
+ 
+### Technology Mapping Using ABC
+ 
+```tcl
 abc -liberty src/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
-
+```
+ 
+The `abc` command maps the remaining combinational logic (AND, OR, NAND, NOR, inverters, and so on) onto actual SKY130 cells. This is the step that turns generic logic into technology-specific logic.
+ 
+---
+ 
+### Replacing Undefined Values
+ 
+```tcl
 setundef -zero
+```
+ 
+Any undefined (`x`) signals left in the design are replaced with a defined logic `0`, so the netlist doesn't carry unknown values into simulation.
+ 
+---
+ 
+### Cleaning the Design
+ 
+```tcl
 clean -purge
+```
+ 
+This removes unused wires, cells, and dangling nets left over after optimization and mapping.
+ 
+---
+ 
+### Renaming Generated Objects
+ 
+```tcl
 rename -enumerate
-
+```
+ 
+Yosys often generates hard-to-read internal names during synthesis. This command renames those objects with a simple enumerated scheme, making the resulting netlist easier to read.
+ 
+---
+ 
+### Reviewing the Synthesis Summary
+ 
+```tcl
 stat
+```
+ 
+This prints a summary of the final design (cell counts by type, wire counts, and estimated area), used here to confirm the design mapped cleanly onto the SKY130 cells.
+ 
+---
+ 
+### Writing Out the Netlist
+ 
+```tcl
 write_verilog -noattr baby_soc_net.v
 ```
+ 
+This writes the final synthesized netlist out as a Verilog file, `baby_soc_net.v`. The `-noattr` flag strips Yosys's internal attributes so the file stays clean for gate-level simulation.
 
 The `stat` command was used at the end to review the final cell count and confirm the design mapped cleanly onto the SKY130 cells.
 
+<div align="center">
 
+<table>
+  <tr>
+    <td align="center">
+      <img width="317" height="690" alt="stat1" src="https://github.com/user-attachments/assets/4f59dca9-661f-4297-82ac-c938d4bc5253" />
+    </td>
+    <td align="center">
+      <img width="391" height="715" alt="stat2" src="https://github.com/user-attachments/assets/9b1a4b23-23d7-413f-be06-8990e89d291c" />
+    </td>
+    <td align="center">
+      <img width="347" height="714" alt="stat3" src="https://github.com/user-attachments/assets/2ecd0f6d-c212-4f5e-937a-a1a8cbab287b" />
+    </td>
+  </tr>
+</table>
 
+</div>
+
+<div align="center">
+
+<table>
+  <tr>
+    <td align="center">
+      <img width="324" height="714" alt="stat4" src="https://github.com/user-attachments/assets/e408bae6-27bc-4965-8382-514fd3beec96" />
+    </td>
+    <td align="center">
+      <img width="389" height="712" alt="stat5" src="https://github.com/user-attachments/assets/8d3f90f7-d2ff-49b5-a5e8-93aad80c888d" />
+    </td>
+  </tr>
+</table>
+
+</div>
+  
 ---
 ## 5. Netlist Views
 
@@ -123,11 +287,7 @@ This is the same design after abc has mapped everything down to SKY130 standard 
 The synthesized netlist was then simulated with the standard-cell Verilog models included, using `POST_SYNTH_SIM` and `FUNCTIONAL` defines so the testbench exercises the post-synthesis functional path.
 
 ```bash
-iverilog -DPOST_SYNTH_SIM -DFUNCTIONAL \
--I src/include/ \
--I ../../sky130RTLDesignAndSynthesisWorkshop/my_lib/verilog_model/ \
--I src/module/ \
-src/module/testbench.v
+iverilog -DPOST_SYNTH_SIM -DFUNCTIONAL -I src/include/ -I ../../sky130RTLDesignAndSynthesisWorkshop/my_lib/verilog_model/ -I src/module/ src/module/testbench.v
 
 ./a.out
 
